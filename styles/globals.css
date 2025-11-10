@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  @apply bg-gray-50 text-gray-800;
+}
+
+.container {
+  max-width: 980px;
+}
+
+/* Hero background used on pages */
+.hero {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  color: white;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+}
+.hero-content {
+  position: relative;
+  z-index: 1;
+}
+
+.card-bg {
+  background-color: rgba(255,255,255,0.9);
+}
+
+/* Dropzone styles */
+.dropzone {
+  border: 2px dashed rgba(156,163,175,0.6); /* tailwind gray-400 */
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  background-color: rgba(255,255,255,0.6);
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.dropzone.dragover {
+  background-color: rgba(59,130,246,0.08); /* blue-500 8% */
+  border-color: rgba(59,130,246,0.8);
+}
+.dropzone .dz-icon {
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(243,244,246,0.9);
+  border-radius: 9999px;
+}
+.response-box {
+  background: #0f172a; /* slate-900 */
+  color: #e6eef8;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+}
+
+.preview-img {
+  max-width: 160px;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(0,0,0,0.06);
+}
