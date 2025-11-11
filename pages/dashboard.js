@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const DEFAULT_URL = 'https://lookerstudio.google.com/reporting/b49f8f13-883f-4f8f-8662-de0e738af36d'
+const DEFAULT_URL = 'https://lookerstudio.google.com/embed/reporting/b49f8f13-883f-4f8f-8662-de0e738af36d/page/3LoeF'
 
 export default function Dashboard(){
   const [url, setUrl] = useState(DEFAULT_URL)
@@ -22,7 +22,14 @@ export default function Dashboard(){
       <div className="card-bg p-4 rounded shadow-sm mb-4">
         <div className="mb-3 text-sm text-gray-600">Báo cáo nhúng (mặc định là Looker mà bạn cung cấp). Đặt link nhúng khác vào ô dưới để thay đổi.</div>
         <div className="w-full h-[600px] border">
-          <iframe src={url} title="Dashboard" className="w-full h-full" />
+          <iframe
+            src={url}
+            title="Dashboard"
+            className="w-full h-full"
+            frameBorder="0"
+            allowFullScreen
+            sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          />
         </div>
         <div className="mt-4 flex gap-2">
           <input value={input} onChange={(e)=>setInput(e.target.value)} placeholder="Dán link nhúng mới vào đây" className="flex-1 px-3 py-2 border rounded" />
