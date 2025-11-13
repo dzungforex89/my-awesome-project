@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 
-const WEBHOOK_URL = 'https://n8n-TinZ.aipencil.name.vn/webhook-test/68fb8884-93af-4168-9309-3607e8938499'
+const WEBHOOK_URL = 'https://n8n-TinZ.aipencil.name.vn/webhook-test/ocr_invoices'
 
 export default function Home(){
   const [file, setFile] = useState(null)
@@ -11,8 +11,9 @@ export default function Home(){
   const inputRef = useRef(null)
   // OCR workflow separate states (uses the same webhook as the upload action)
   const OCR_WF_URL = WEBHOOK_URL // sends to the main webhook by default
-  const [ocrFile, setOcrFile] = useState(null)
-  const [ocrPreview, setOcrPreview] = useState(null)
+  // allow multiple OCR files
+  const [ocrFiles, setOcrFiles] = useState([])
+  const [ocrPreviews, setOcrPreviews] = useState([])
   const [ocrDragOver, setOcrDragOver] = useState(false)
   const ocrInputRef = useRef(null)
   const [ocrStatus, setOcrStatus] = useState('')
@@ -21,13 +22,19 @@ export default function Home(){
   const [ocrDownloadUrl, setOcrDownloadUrl] = useState(null)
   const [ocrDownloadName, setOcrDownloadName] = useState(null)
   // Placeholders for the two trigger-only webhook URLs (replace with your real n8n webhook URLs)
-  const TRIGGER_WF_UPPER = 'https://n8n.example.com/webhook/trigger-upper'
-  const TRIGGER_WF_LOWER = 'https://n8n.example.com/webhook/trigger-lower'
+  const TRIGGER_WF_UPPER = 'https://n8n-TinZ.aipencil.name.vn/webhook/lines_check'
+  const TRIGGER_WF_LOWER = 'https://n8n-TinZ.aipencil.name.vn/webhook-test/final_results'
   const [triggerStatus, setTriggerStatus] = useState('')
   const [triggerResponse, setTriggerResponse] = useState(null)
   const [triggerTable, setTriggerTable] = useState(null)
   const [downloadUrl, setDownloadUrl] = useState(null)
   const [downloadName, setDownloadName] = useState(null)
+  // Collapse toggle states
+  const [showTriggerPreview, setShowTriggerPreview] = useState(true)
+  const [showOcrPreview, setShowOcrPreview] = useState(true)
+  // Row count display states (5, 10, 15, or all)
+  const [triggerRowCount, setTriggerRowCount] = useState(5)
+  const [ocrRowCount, setOcrRowCount] = useState(5)
 
   async function handleSubmit(e){
     e.preventDefault()
@@ -74,18 +81,21 @@ export default function Home(){
     inputRef.current?.click()
   }
 
-  function handleOcrFileSelected(f){
-    if(!f) return
-    setOcrFile(f)
-    setOcrPreview(URL.createObjectURL(f))
+  // Add one or more OCR files and create previews
+  function addOcrFiles(files){
+    if(!files || files.length === 0) return
+    const arr = Array.from(files)
+    const urls = arr.map(f => URL.createObjectURL(f))
+    setOcrFiles(prev => [...prev, ...arr])
+    setOcrPreviews(prev => [...prev, ...urls])
     setOcrStatus('')
   }
 
   function onOcrDrop(e){
     e.preventDefault()
     setOcrDragOver(false)
-    const f = e.dataTransfer.files?.[0]
-    if(f) handleOcrFileSelected(f)
+    const files = e.dataTransfer.files
+    if(files && files.length) addOcrFiles(files)
   }
 
   function onOcrBrowseClick(){
@@ -93,7 +103,7 @@ export default function Home(){
   }
 
   async function triggerOCR(){
-    if(!ocrFile){
+    if(!ocrFiles || ocrFiles.length === 0){
       setOcrStatus('Vui lòng chọn ảnh để OCR.')
       return
     }
@@ -103,7 +113,10 @@ export default function Home(){
     setOcrDownloadUrl(null)
     try{
       const fd = new FormData()
-      fd.append('file', ocrFile)
+      // append multiple files (if any) as files[]
+      for(const f of ocrFiles){
+        fd.append('files[]', f)
+      }
       const res = await fetch(OCR_WF_URL, { method: 'POST', body: fd })
       const ct = (res.headers.get('content-type') || '').toLowerCase()
       const cd = res.headers.get('content-disposition') || ''
@@ -113,8 +126,35 @@ export default function Home(){
 
       if(ct.includes('application/json')){
         const j = await res.json()
-        setOcrResult(JSON.stringify(j, null, 2))
-        setOcrStatus(`Hoàn tất OCR (status ${res.status})`)
+        // Extract n8n binary and parse XLSX
+        const bin = extractN8nBinary(j)
+        if(bin && bin.base64){
+          try{
+            const raw = bin.base64.replace(/\s+/g,'')
+            const idx = raw.indexOf('base64,')
+            const b64 = idx !== -1 ? raw.slice(idx + 7) : raw
+            const binaryString = atob(b64)
+            const len = binaryString.length
+            const bytes = new Uint8Array(len)
+            for(let i=0;i<len;i++) bytes[i] = binaryString.charCodeAt(i)
+            const arrayBuffer = bytes.buffer
+            const XLSX = await import('xlsx')
+            const wb = XLSX.read(arrayBuffer, { type: 'array' })
+            const firstSheetName = wb.SheetNames[0]
+            const sheet = wb.Sheets[firstSheetName]
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+            setOcrTable(data)
+            setOcrStatus(`Hoàn tất OCR (status ${res.status}) - XLSX`)
+            const urlObj = URL.createObjectURL(new Blob([arrayBuffer]))
+            setOcrDownloadUrl(urlObj)
+            setOcrDownloadName(bin.fileName || `ocr-result-${Date.now()}.xlsx`)
+          }catch(e){
+            setOcrStatus(`Lỗi parse XLSX: ${e.message}`)
+          }
+        } else {
+          setOcrResult(JSON.stringify(j, null, 2))
+          setOcrStatus(`Hoàn tất OCR (status ${res.status}) - JSON`)
+        }
       } else if(ct.includes('csv') || ct.includes('text/csv')){
         const t = await res.text()
         const table = parseCSV(t)
@@ -132,11 +172,35 @@ export default function Home(){
           setOcrStatus(`Hoàn tất OCR (status ${res.status})`)
         }
       } else {
+        // binary/file response - try to handle Excel (.xlsx) specially
         const blob = await res.blob()
-        const urlObj = URL.createObjectURL(blob)
-        setOcrDownloadUrl(urlObj)
-        setOcrDownloadName(fname || `ocr-result-${Date.now()}`)
-        setOcrStatus(`Hoàn tất OCR (status ${res.status}). File sẵn sàng để tải.`)
+        const isXlsx = ct.includes('spreadsheet') || (fname && fname.toLowerCase().endsWith('.xlsx')) || cd.toLowerCase().includes('xlsx')
+        if(isXlsx){
+          try{
+            const arrayBuffer = await blob.arrayBuffer()
+            const XLSX = await import('xlsx')
+            const wb = XLSX.read(arrayBuffer, { type: 'array' })
+            const firstSheetName = wb.SheetNames[0]
+            const sheet = wb.Sheets[firstSheetName]
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+            setOcrTable(data)
+            setOcrStatus(`Hoàn tất OCR (status ${res.status}) - XLSX parsed`)
+            // also provide download
+            const urlObj = URL.createObjectURL(new Blob([arrayBuffer]))
+            setOcrDownloadUrl(urlObj)
+            setOcrDownloadName(fname || `ocr-result-${Date.now()}.xlsx`)
+          }catch(parseErr){
+            const urlObj = URL.createObjectURL(blob)
+            setOcrDownloadUrl(urlObj)
+            setOcrDownloadName(fname || `ocr-result-${Date.now()}`)
+            setOcrStatus(`Hoàn tất OCR (status ${res.status}). (Could not parse XLSX)`) 
+          }
+        } else {
+          const urlObj = URL.createObjectURL(blob)
+          setOcrDownloadUrl(urlObj)
+          setOcrDownloadName(fname || `ocr-result-${Date.now()}`)
+          setOcrStatus(`Hoàn tất OCR (status ${res.status}). File sẵn sàng để tải.`)
+        }
       }
     }catch(err){
       setOcrStatus('Lỗi OCR: ' + err.message)
@@ -183,6 +247,35 @@ export default function Home(){
     return rows
   }
 
+  // Extract n8n-style binary from JSON response (items array or single object with binary field)
+  function extractN8nBinary(obj){
+    if(!obj) return null
+    // If it's an array (n8n returns [{ binary: {...} }]), check each item
+    if(Array.isArray(obj)){
+      for(const it of obj){
+        const r = extractN8nBinary(it)
+        if(r) return r
+      }
+    } else if(typeof obj === 'object'){
+      // If object has 'binary' field
+      if(obj.binary && typeof obj.binary === 'object'){
+        for(const key of Object.keys(obj.binary)){
+          const bin = obj.binary[key]
+          if(bin && typeof bin === 'object' && typeof bin.data === 'string' && bin.data.length > 100){
+            // n8n binary shape: { data: '<base64>', fileName: '...', mimeType: '...'}
+            return { base64: bin.data, fileName: bin.fileName || `${key}.xlsx`, mimeType: bin.mimeType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+          }
+        }
+      }
+      // recurse into nested objects
+      for(const k of Object.keys(obj)){
+        const r = extractN8nBinary(obj[k])
+        if(r) return r
+      }
+    }
+    return null
+  }
+
   // Trigger-only workflow: POST to webhook and handle file/JSON/text response
   async function triggerWorkflow(url){
     setTriggerStatus('Kích hoạt...')
@@ -201,8 +294,35 @@ export default function Home(){
 
       if(ct.includes('application/json')){
         const j = await res.json()
-        setTriggerResponse(JSON.stringify(j, null, 2))
-        setTriggerStatus(`Hoàn tất (status ${res.status})`)
+        // Extract n8n binary and parse XLSX
+        const n8nBin = extractN8nBinary(j)
+        if(n8nBin && n8nBin.base64){
+          try{
+            const raw = n8nBin.base64.replace(/\s+/g,'')
+            const idx = raw.indexOf('base64,')
+            const b64 = idx !== -1 ? raw.slice(idx + 7) : raw
+            const binaryString = atob(b64)
+            const len = binaryString.length
+            const bytes = new Uint8Array(len)
+            for(let i=0;i<len;i++) bytes[i] = binaryString.charCodeAt(i)
+            const arrayBuffer = bytes.buffer
+            const XLSX = await import('xlsx')
+            const wb = XLSX.read(arrayBuffer, { type: 'array' })
+            const firstSheetName = wb.SheetNames[0]
+            const sheet = wb.Sheets[firstSheetName]
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+            setTriggerTable(data)
+            setTriggerStatus(`Hoàn tất (status ${res.status}) - XLSX`)
+            const urlObj = URL.createObjectURL(new Blob([arrayBuffer]))
+            setDownloadUrl(urlObj)
+            setDownloadName(n8nBin.fileName || `result-${Date.now()}.xlsx`)
+          }catch(e){
+            setTriggerStatus(`Lỗi parse XLSX: ${e.message}`)
+          }
+        } else {
+          setTriggerResponse(JSON.stringify(j, null, 2))
+          setTriggerStatus(`Hoàn tất (status ${res.status}) - JSON`)
+        }
       } else if(ct.includes('csv') || ct.includes('text/csv')){
         const t = await res.text()
         const table = parseCSV(t)
@@ -220,12 +340,34 @@ export default function Home(){
           setTriggerStatus(`Hoàn tất (status ${res.status})`)
         }
       } else {
-        // assume binary/file
+        // assume binary/file - try to parse XLSX into table preview
         const blob = await res.blob()
-        const urlObj = URL.createObjectURL(blob)
-        setDownloadUrl(urlObj)
-        setDownloadName(fname || `result-${Date.now()}`)
-        setTriggerStatus(`Hoàn tất (status ${res.status}). File sẵn sàng để tải.`)
+        const isXlsx = ct.includes('spreadsheet') || (fname && fname.toLowerCase().endsWith('.xlsx')) || cd.toLowerCase().includes('xlsx')
+        if(isXlsx){
+          try{
+            const arrayBuffer = await blob.arrayBuffer()
+            const XLSX = await import('xlsx')
+            const wb = XLSX.read(arrayBuffer, { type: 'array' })
+            const firstSheetName = wb.SheetNames[0]
+            const sheet = wb.Sheets[firstSheetName]
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+            setTriggerTable(data)
+            setTriggerStatus(`Hoàn tất (status ${res.status}) - XLSX parsed`)
+            const urlObj = URL.createObjectURL(new Blob([arrayBuffer]))
+            setDownloadUrl(urlObj)
+            setDownloadName(fname || `result-${Date.now()}.xlsx`)
+          }catch(parseErr){
+            const urlObj = URL.createObjectURL(blob)
+            setDownloadUrl(urlObj)
+            setDownloadName(fname || `result-${Date.now()}`)
+            setTriggerStatus(`Hoàn tất (status ${res.status}). (Could not parse XLSX)`)
+          }
+        } else {
+          const urlObj = URL.createObjectURL(blob)
+          setDownloadUrl(urlObj)
+          setDownloadName(fname || `result-${Date.now()}`)
+          setTriggerStatus(`Hoàn tất (status ${res.status}). File sẵn sàng để tải.`)
+        }
       }
     }catch(err){
       setTriggerStatus('Lỗi: ' + err.message)
@@ -238,8 +380,8 @@ export default function Home(){
     <div>
       <div className="hero mb-6" style={{backgroundImage: `url('${heroImage}')`}}>
         <div className="hero-content container mx-auto px-4">
-          <h1 className="text-3xl md:text-4xl font-bold">Gửi ảnh hóa đơn — Tham gia cuộc thi</h1>
-          <p className="mt-2 text-sm md:text-base">Chọn file ảnh rồi bấm gửi để trigger webhook của n8n và ghi nhận tham gia.</p>
+          <h1 className="text-3xl md:text-4xl font-bold">Nhập ảnh hóa đơn</h1>
+          <p className="mt-2 text-sm md:text-base">Chọn file ảnh rồi bấm gửi để trigger webhook.</p>
         </div>
       </div>
 
@@ -253,47 +395,72 @@ export default function Home(){
         <h3 className="text-lg font-semibold mb-2">Trigger-only workflows</h3>
         <p className="text-sm text-gray-600 mb-3">Kích hoạt nhanh 2 nhánh workflow (không gửi ảnh từ đây).</p>
         <div className="flex gap-3 mb-3">
-          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_UPPER)} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Lines Check Items</button>
-          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_LOWER)} className="bg-rose-600 text-white px-4 py-2 rounded hover:bg-rose-700">Final Results</button>
-          <button type="button" onClick={()=>{setTriggerResponse(null); setTriggerStatus(''); setDownloadUrl(null); setDownloadName(null)}} className="px-3 py-2 border rounded">Clear</button>
+          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_UPPER)} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Final Results</button>
+          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_LOWER)} className="bg-rose-600 text-white px-4 py-2 rounded hover:bg-rose-700">Lines Check Item</button>
+          <button type="button" onClick={()=>{setTriggerResponse(null); setTriggerStatus(''); setDownloadUrl(null); setDownloadName(null); setTriggerTable(null); setShowTriggerPreview(true); setTriggerRowCount(5)}} className="px-3 py-2 border rounded">Clear</button>
         </div>
         <div className="text-sm text-gray-700 mb-2">{triggerStatus}</div>
 
-        {triggerTable && triggerTable.length > 0 && (
-          <div className="mt-4 overflow-auto">
-            <div className="text-sm font-medium mb-2">CSV Preview:</div>
-            <table className="min-w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-100">
-                  {triggerTable[0].map((h, i) => (
-                    <th key={i} className="text-left px-3 py-2 border">{h || `col${i+1}`}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {triggerTable.slice(1, 201).map((r, ri) => (
-                  <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-gray-50'}>
-                    {triggerTable[0].map((_, ci) => (
-                      <td key={ci} className="px-3 py-2 border">{r[ci] ?? ''}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {triggerTable.length > 201 && <div className="text-xs text-gray-500 mt-2">Chỉ hiển thị 200 dòng đầu.</div>}
-          </div>
-        )}
-
-        {triggerResponse && (
+        {(triggerTable || triggerResponse || downloadUrl) && (
           <div className="mt-4">
-            <div className="text-sm font-medium mb-2">Response:</div>
-            <div className="response-box">{triggerResponse}</div>
-          </div>
-        )}
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={()=>setShowTriggerPreview(!showTriggerPreview)} className="text-sm font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                <span>{showTriggerPreview ? '▼' : '▶'}</span>
+                {showTriggerPreview ? 'Ẩn' : 'Hiển thị'} kết quả
+              </button>
+              {downloadUrl && (
+                <a className="inline-block bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700" href={downloadUrl} download={downloadName}>Tải ({downloadName})</a>
+              )}
+            </div>
+            {showTriggerPreview && (
+              <div>
+                {triggerTable && triggerTable.length > 0 && (
+                  <div className="mt-3 overflow-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium">Kết quả XLSX:</div>
+                      <div className="flex gap-2">
+                        {[5, 10, 15, 'all'].map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => setTriggerRowCount(count)}
+                            className={`text-xs px-2 py-1 rounded ${triggerRowCount === count ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                          >
+                            {count}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <table className="min-w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          {triggerTable[0].map((h, i) => (
+                            <th key={i} className="text-left px-2 py-1 border">{h || `col${i+1}`}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(triggerRowCount === 'all' ? triggerTable.slice(1) : triggerTable.slice(1, triggerRowCount + 1)).map((r, ri) => (
+                          <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-gray-50'}>
+                            {triggerTable[0].map((_, ci) => (
+                              <td key={ci} className="px-2 py-1 border text-xs">{r[ci] ?? ''}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {triggerRowCount !== 'all' && triggerTable.length > triggerRowCount + 1 && <div className="text-xs text-gray-500 mt-1">Chỉ hiển thị {triggerRowCount} dòng đầu.</div>}
+                  </div>
+                )}
 
-        {downloadUrl && (
-          <div className="mt-3">
-            <a className="inline-block bg-green-600 text-white px-4 py-2 rounded" href={downloadUrl} download={downloadName}>Tải file kết quả ({downloadName})</a>
+                {triggerResponse && (
+                  <div className="mt-3">
+                    <div className="text-sm font-medium mb-2">JSON:</div>
+                    <div className="response-box text-xs max-h-48 overflow-auto">{triggerResponse}</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
         <div className="mt-4 text-xs text-gray-500">Lưu ý: Phiên bản này chỉ phục vụ mục đích riêng của tác giả.</div>
@@ -321,53 +488,89 @@ export default function Home(){
             <div className="font-medium">Drop image for OCR here</div>
             <div className="text-xs text-gray-600">Click to browse or drop image. OCR will run on the selected image.</div>
           </div>
-          {ocrPreview && <img src={ocrPreview} alt="ocr preview" className="preview-img" />}
+          {ocrPreviews && ocrPreviews.length > 0 && (
+            <div className="flex gap-2">
+              {ocrPreviews.map((p, idx) => (
+                <img key={idx} src={p} alt={`ocr preview ${idx+1}`} className="preview-img" />
+              ))}
+            </div>
+          )}
         </div>
 
-        <input ref={ocrInputRef} type="file" accept="image/*" className="hidden" onChange={(e)=>handleOcrFileSelected(e.target.files?.[0]||null)} />
+  <input ref={ocrInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e)=>addOcrFiles(e.target.files)} />
 
         <div className="flex items-center gap-3">
           <button type="button" onClick={triggerOCR} className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Trigger OCR</button>
-          <button type="button" onClick={()=>{setOcrFile(null); setOcrPreview(null); setOcrResult(null); setOcrTable(null); setOcrStatus('')}} className="px-3 py-2 border rounded">Reset OCR</button>
+          <button type="button" onClick={()=>{
+            // revoke preview URLs
+            ocrPreviews.forEach(u=>{ try{ URL.revokeObjectURL(u) }catch(e){}
+            })
+            setOcrFiles([]); setOcrPreviews([]); setOcrResult(null); setOcrTable(null); setOcrStatus('')
+          }} className="px-3 py-2 border rounded">Reset OCR</button>
         </div>
 
         <div className="mt-3 text-sm text-gray-700">{ocrStatus}</div>
 
-        {ocrTable && ocrTable.length > 0 && (
-          <div className="mt-4 overflow-auto">
-            <div className="text-sm font-medium mb-2">OCR CSV Preview:</div>
-            <table className="min-w-full border-collapse">
-              <thead>
-                <tr className="bg-gray-100">
-                  {ocrTable[0].map((h, i) => (
-                    <th key={i} className="text-left px-3 py-2 border">{h || `col${i+1}`}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ocrTable.slice(1, 201).map((r, ri) => (
-                  <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-gray-50'}>
-                    {ocrTable[0].map((_, ci) => (
-                      <td key={ci} className="px-3 py-2 border">{r[ci] ?? ''}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {ocrTable.length > 201 && <div className="text-xs text-gray-500 mt-2">Chỉ hiển thị 200 dòng đầu.</div>}
-          </div>
-        )}
-
-        {ocrResult && (
+        {(ocrTable || ocrResult || ocrDownloadUrl) && (
           <div className="mt-4">
-            <div className="text-sm font-medium mb-2">OCR Result:</div>
-            <div className="response-box">{ocrResult}</div>
-          </div>
-        )}
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={()=>setShowOcrPreview(!showOcrPreview)} className="text-sm font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                <span>{showOcrPreview ? '▼' : '▶'}</span>
+                {showOcrPreview ? 'Ẩn' : 'Hiển thị'} kết quả
+              </button>
+              {ocrDownloadUrl && (
+                <a className="inline-block bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700" href={ocrDownloadUrl} download={ocrDownloadName}>Tải ({ocrDownloadName})</a>
+              )}
+            </div>
+            {showOcrPreview && (
+              <div>
+                {ocrTable && ocrTable.length > 0 && (
+                  <div className="mt-3 overflow-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium">Kết quả XLSX:</div>
+                      <div className="flex gap-2">
+                        {[5, 10, 15, 'all'].map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => setOcrRowCount(count)}
+                            className={`text-xs px-2 py-1 rounded ${ocrRowCount === count ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                          >
+                            {count}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <table className="min-w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          {ocrTable[0].map((h, i) => (
+                            <th key={i} className="text-left px-2 py-1 border">{h || `col${i+1}`}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(ocrRowCount === 'all' ? ocrTable.slice(1) : ocrTable.slice(1, ocrRowCount + 1)).map((r, ri) => (
+                          <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-gray-50'}>
+                            {ocrTable[0].map((_, ci) => (
+                              <td key={ci} className="px-2 py-1 border text-xs">{r[ci] ?? ''}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {ocrRowCount !== 'all' && ocrTable.length > ocrRowCount + 1 && <div className="text-xs text-gray-500 mt-1">Chỉ hiển thị {ocrRowCount} dòng đầu.</div>}
+                  </div>
+                )}
 
-        {ocrDownloadUrl && (
-          <div className="mt-3">
-            <a className="inline-block bg-green-600 text-white px-4 py-2 rounded" href={ocrDownloadUrl} download={ocrDownloadName}>Tải kết quả OCR ({ocrDownloadName})</a>
+                {ocrResult && (
+                  <div className="mt-3">
+                    <div className="text-sm font-medium mb-2">Text/JSON:</div>
+                    <div className="response-box text-xs max-h-48 overflow-auto">{ocrResult}</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
