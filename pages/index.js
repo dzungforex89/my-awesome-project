@@ -535,80 +535,6 @@ export default function Home(){
           </div>
         )}
       </div>
-      <div className="card-bg p-6 rounded shadow-sm mt-6">
-        <h3 className="text-lg font-semibold mb-2">Trigger-only workflows</h3>
-        <p className="text-sm text-gray-600 mb-3">Kích hoạt nhanh 2 nhánh workflow (không gửi ảnh từ đây).</p>
-        <div className="flex gap-3 mb-3">
-          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_UPPER)} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Final Results</button>
-          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_LOWER)} className="bg-rose-600 text-white px-4 py-2 rounded hover:bg-rose-700">Lines Check Item</button>
-          <button type="button" onClick={()=>{setTriggerResponse(null); setTriggerStatus(''); setDownloadUrl(null); setDownloadName(null); setTriggerTable(null); setShowTriggerPreview(true); setTriggerRowCount(5)}} className="px-3 py-2 border rounded">Clear</button>
-        </div>
-        <div className="text-sm text-gray-700 mb-2">{triggerStatus}</div>
-
-        {(triggerTable || triggerResponse || downloadUrl) && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between mb-2">
-              <button type="button" onClick={()=>setShowTriggerPreview(!showTriggerPreview)} className="text-sm font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                <span>{showTriggerPreview ? '▼' : '▶'}</span>
-                {showTriggerPreview ? 'Ẩn' : 'Hiển thị'} kết quả
-              </button>
-              {downloadUrl && (
-                <a className="inline-block bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700" href={downloadUrl} download={downloadName}>Tải ({downloadName})</a>
-              )}
-            </div>
-            {showTriggerPreview && (
-              <div>
-                {triggerTable && triggerTable.length > 0 && (
-                  <div className="mt-3 overflow-auto">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-medium">Kết quả XLSX:</div>
-                      <div className="flex gap-2">
-                        {[5, 10, 15, 'all'].map((count) => (
-                          <button
-                            key={count}
-                            type="button"
-                            onClick={() => setTriggerRowCount(count)}
-                            className={`text-xs px-2 py-1 rounded ${triggerRowCount === count ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
-                          >
-                            {count}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <table className="min-w-full border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          {triggerTable[0].map((h, i) => (
-                            <th key={i} className="text-left px-2 py-1 border">{h || `col${i+1}`}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(triggerRowCount === 'all' ? triggerTable.slice(1) : triggerTable.slice(1, triggerRowCount + 1)).map((r, ri) => (
-                          <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-gray-50'}>
-                            {triggerTable[0].map((_, ci) => (
-                              <td key={ci} className="px-2 py-1 border text-xs">{r[ci] ?? ''}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {triggerRowCount !== 'all' && triggerTable.length > triggerRowCount + 1 && <div className="text-xs text-gray-500 mt-1">Chỉ hiển thị {triggerRowCount} dòng đầu.</div>}
-                  </div>
-                )}
-
-                {triggerResponse && (
-                  <div className="mt-3">
-                    <div className="text-sm font-medium mb-2">JSON:</div>
-                    <div className="response-box text-xs max-h-48 overflow-auto">{triggerResponse}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        <div className="mt-4 text-xs text-gray-500">Lưu ý: Phiên bản này chỉ phục vụ mục đích riêng của tác giả.</div>
-      </div>
 
       {/* OCR workflow card (separate) */}
       <div className="card-bg p-6 rounded shadow-sm mt-6">
@@ -717,6 +643,81 @@ export default function Home(){
             )}
           </div>
         )}
+      </div>
+
+      <div className="card-bg p-6 rounded shadow-sm mt-6">
+        <h3 className="text-lg font-semibold mb-2">Trigger-only workflows</h3>
+        <p className="text-sm text-gray-600 mb-3">Kích hoạt nhanh 2 nhánh workflow (không gửi ảnh từ đây).</p>
+        <div className="flex gap-3 mb-3">
+          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_UPPER)} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Final Results</button>
+          <button type="button" onClick={()=>triggerWorkflow(TRIGGER_WF_LOWER)} className="bg-rose-600 text-white px-4 py-2 rounded hover:bg-rose-700">Lines Check Item</button>
+          <button type="button" onClick={()=>{setTriggerResponse(null); setTriggerStatus(''); setDownloadUrl(null); setDownloadName(null); setTriggerTable(null); setShowTriggerPreview(true); setTriggerRowCount(5)}} className="px-3 py-2 border rounded">Clear</button>
+        </div>
+        <div className="text-sm text-gray-700 mb-2">{triggerStatus}</div>
+
+        {(triggerTable || triggerResponse || downloadUrl) && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <button type="button" onClick={()=>setShowTriggerPreview(!showTriggerPreview)} className="text-sm font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                <span>{showTriggerPreview ? '▼' : '▶'}</span>
+                {showTriggerPreview ? 'Ẩn' : 'Hiển thị'} kết quả
+              </button>
+              {downloadUrl && (
+                <a className="inline-block bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700" href={downloadUrl} download={downloadName}>Tải ({downloadName})</a>
+              )}
+            </div>
+            {showTriggerPreview && (
+              <div>
+                {triggerTable && triggerTable.length > 0 && (
+                  <div className="mt-3 overflow-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-medium">Kết quả XLSX:</div>
+                      <div className="flex gap-2">
+                        {[5, 10, 15, 'all'].map((count) => (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => setTriggerRowCount(count)}
+                            className={`text-xs px-2 py-1 rounded ${triggerRowCount === count ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                          >
+                            {count}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <table className="min-w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          {triggerTable[0].map((h, i) => (
+                            <th key={i} className="text-left px-2 py-1 border">{h || `col${i+1}`}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(triggerRowCount === 'all' ? triggerTable.slice(1) : triggerTable.slice(1, triggerRowCount + 1)).map((r, ri) => (
+                          <tr key={ri} className={ri % 2 === 0 ? '' : 'bg-gray-50'}>
+                            {triggerTable[0].map((_, ci) => (
+                              <td key={ci} className="px-2 py-1 border text-xs">{r[ci] ?? ''}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {triggerRowCount !== 'all' && triggerTable.length > triggerRowCount + 1 && <div className="text-xs text-gray-500 mt-1">Chỉ hiển thị {triggerRowCount} dòng đầu.</div>}
+                  </div>
+                )}
+
+                {triggerResponse && (
+                  <div className="mt-3">
+                    <div className="text-sm font-medium mb-2">JSON:</div>
+                    <div className="response-box text-xs max-h-48 overflow-auto">{triggerResponse}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        <div className="mt-4 text-xs text-gray-500">Lưu ý: Phiên bản này chỉ phục vụ mục đích riêng của tác giả.</div>
       </div>
     </div>
   )
