@@ -21,6 +21,17 @@ export default function Home(){
   const [ocrTable, setOcrTable] = useState(null)
   const [ocrDownloadUrl, setOcrDownloadUrl] = useState(null)
   const [ocrDownloadName, setOcrDownloadName] = useState(null)
+  // PO/GRN upload states (for nhập liệu webhook)
+  const [poFile, setPoFile] = useState(null)
+  const [grnFile, setGrnFile] = useState(null)
+  const [poPreview, setPoPreview] = useState(null)
+  const [grnPreview, setGrnPreview] = useState(null)
+  const poInputRef = useRef(null)
+  const grnInputRef = useRef(null)
+  const [poGrnStatus, setPoGrnStatus] = useState('')
+  const [poGrnResponse, setPoGrnResponse] = useState(null)
+  const [poGrnDownloadUrl, setPoGrnDownloadUrl] = useState(null)
+  const [poGrnDownloadName, setPoGrnDownloadName] = useState(null)
   // Placeholders for the two trigger-only webhook URLs (replace with your real n8n webhook URLs)
   const TRIGGER_WF_UPPER = 'https://n8n-TinZ.aipencil.name.vn/webhook/lines_check'
   const TRIGGER_WF_LOWER = 'https://n8n-TinZ.aipencil.name.vn/webhook-test/final_results'
@@ -100,6 +111,78 @@ export default function Home(){
 
   function onOcrBrowseClick(){
     ocrInputRef.current?.click()
+  }
+
+  // PO/GRN helpers
+  async function handlePoSelected(f){
+    if(!f) return
+    setPoFile(f)
+    try{
+      const txt = await f.text()
+      const lines = txt.split(/\r?\n/).slice(0,6).join('\n')
+      setPoPreview(lines)
+    }catch(e){
+      setPoPreview(null)
+    }
+  }
+  async function handleGrnSelected(f){
+    if(!f) return
+    setGrnFile(f)
+    try{
+      const txt = await f.text()
+      const lines = txt.split(/\r?\n/).slice(0,6).join('\n')
+      setGrnPreview(lines)
+    }catch(e){
+      setGrnPreview(null)
+    }
+  }
+
+  function onPoBrowseClick(){ poInputRef.current?.click() }
+  function onGrnBrowseClick(){ grnInputRef.current?.click() }
+
+  // Send both files to the nhập liệu webhook
+  async function sendPoGrn(){
+    if(!poFile || !grnFile){
+      setPoGrnStatus('Vui lòng chọn cả 2 file: po.csv và grn.csv')
+      return
+    }
+    setPoGrnStatus('Đang gửi...')
+    setPoGrnResponse(null)
+    setPoGrnDownloadUrl(null)
+    try{
+      const fd = new FormData()
+      fd.append('po', poFile)
+      fd.append('grn', grnFile)
+      const res = await fetch('https://n8n-TinZ.aipencil.name.vn/webhook-test/nhap_lieu', { method: 'POST', body: fd })
+      const ct = (res.headers.get('content-type') || '').toLowerCase()
+      const cd = res.headers.get('content-disposition') || ''
+      let fname = null
+      const m = cd.match(/filename\*=UTF-8''([^;\n]+)/i) || cd.match(/filename="?([^";]+)"?/i)
+      if(m) fname = decodeURIComponent(m[1])
+
+      if(ct.includes('application/json')){
+        const j = await res.json()
+        setPoGrnResponse(JSON.stringify(j, null, 2))
+        setPoGrnStatus(`Hoàn tất (status ${res.status}) - JSON`)
+      } else if(ct.includes('csv') || ct.includes('text/csv')){
+        const t = await res.text()
+        setPoGrnResponse(t)
+        setPoGrnStatus(`Hoàn tất (status ${res.status}) - CSV`)
+      } else if(ct.startsWith('text/') || ct === ''){
+        const t = await res.text()
+        setPoGrnResponse(t)
+        setPoGrnStatus(`Hoàn tất (status ${res.status})`)
+      } else {
+        // binary/file response
+        const blob = await res.blob()
+        const urlObj = URL.createObjectURL(blob)
+        setPoGrnDownloadUrl(urlObj)
+        setPoGrnDownloadName(fname || `nhaplieu-result-${Date.now()}`)
+        setPoGrnStatus(`Hoàn tất (status ${res.status}). File sẵn sàng để tải.`)
+      }
+    }catch(err){
+      setPoGrnStatus('Lỗi: ' + err.message)
+    }
   }
 
   async function triggerOCR(){
@@ -391,6 +474,67 @@ export default function Home(){
       </div>
 
       {/* Trigger-only workflows card */}
+      {/* PO + GRN upload (nhập liệu) */}
+      <div className="card-bg p-6 rounded shadow-sm mt-6">
+        <h3 className="text-lg font-semibold mb-2">Nhập liệu (PO + GRN)</h3>
+        <p className="text-sm text-gray-600 mb-3">Tải lên 2 file CSV: `po.csv` và `grn.csv` rồi gửi tới webhook nhập liệu.</p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+          <div>
+            <div className={`dropzone ${poFile? 'border-green-400' : ''}`} onClick={onPoBrowseClick} role="button">
+              <div className="dz-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12v-8" />
+                </svg>
+              </div>
+              <div className="flex-1 text-left">
+                <div className="font-medium">Chọn `po.csv`</div>
+                <div className="text-xs text-gray-600">Click để chọn file CSV</div>
+              </div>
+            </div>
+            <input ref={poInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e)=>handlePoSelected(e.target.files?.[0]||null)} />
+            {poFile && <div className="mt-2 text-sm">Chọn: <strong>{poFile.name}</strong></div>}
+            {poPreview && <div className="response-box text-xs mt-2 max-h-36 overflow-auto">{poPreview}</div>}
+          </div>
+
+          <div>
+            <div className={`dropzone ${grnFile? 'border-green-400' : ''}`} onClick={onGrnBrowseClick} role="button">
+              <div className="dz-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12v-8" />
+                </svg>
+              </div>
+              <div className="flex-1 text-left">
+                <div className="font-medium">Chọn `grn.csv`</div>
+                <div className="text-xs text-gray-600">Click để chọn file CSV</div>
+              </div>
+            </div>
+            <input ref={grnInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={(e)=>handleGrnSelected(e.target.files?.[0]||null)} />
+            {grnFile && <div className="mt-2 text-sm">Chọn: <strong>{grnFile.name}</strong></div>}
+            {grnPreview && <div className="response-box text-xs mt-2 max-h-36 overflow-auto">{grnPreview}</div>}
+          </div>
+        </div>
+
+        <div className="flex gap-3 mb-3">
+          <button type="button" onClick={sendPoGrn} className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Gửi nhập liệu</button>
+          <button type="button" onClick={()=>{ setPoFile(null); setGrnFile(null); setPoPreview(null); setGrnPreview(null); setPoGrnResponse(null); setPoGrnStatus('') }} className="px-3 py-2 border rounded">Clear</button>
+        </div>
+
+        <div className="text-sm text-gray-700 mb-2">{poGrnStatus}</div>
+        {poGrnResponse && (
+          <div className="mt-3">
+            <div className="text-sm font-medium mb-2">Response:</div>
+            <div className="response-box text-xs max-h-48 overflow-auto">{poGrnResponse}</div>
+          </div>
+        )}
+        {poGrnDownloadUrl && (
+          <div className="mt-3">
+            <a className="inline-block bg-green-600 text-white px-3 py-1 rounded text-sm" href={poGrnDownloadUrl} download={poGrnDownloadName}>Tải ({poGrnDownloadName})</a>
+          </div>
+        )}
+      </div>
       <div className="card-bg p-6 rounded shadow-sm mt-6">
         <h3 className="text-lg font-semibold mb-2">Trigger-only workflows</h3>
         <p className="text-sm text-gray-600 mb-3">Kích hoạt nhanh 2 nhánh workflow (không gửi ảnh từ đây).</p>
